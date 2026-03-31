@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Secure Share</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="page">
+    <div class="hero-pill">Secure • Chiffré • Lecture unique</div>
+    <h1 class="hero-title">Secure Share</h1>
+    <p class="hero-subtitle">Partage un secret chiffré sans l’envoyer en clair.</p>
+
+    <!-- Vue création -->
+    <section id="createView" class="card">
+      <h2>Créer un partage</h2>
+      <p class="muted">Le secret est protégé par un PIN de 6 chiffres et disparaît après lecture.</p>
+
+      <label for="secretInput">Secret à partager</label>
+      <textarea id="secretInput" placeholder="Ex: mot de passe, code temporaire, identifiant..."></textarea>
+
+      <div class="grid">
+        <div>
+          <label for="pinInput">PIN de déchiffrement</label>
+          <input id="pinInput" type="password" maxlength="6" inputmode="numeric" placeholder="Ex: 482913" />
+        </div>
+
+        <div>
+          <label for="expirationSelect">Expiration</label>
+          <select id="expirationSelect">
+            <option value="5">5 minutes</option>
+            <option value="10" selected>10 minutes</option>
+            <option value="30">30 minutes</option>
+            <option value="60">1 heure</option>
+          </select>
+        </div>
+      </div>
+
+      <button id="createBtn" class="primary-btn">Créer le lien sécurisé</button>
+
+      <div id="createResult" class="result hidden"></div>
+    </section>
+
+    <!-- Vue lecture -->
+    <section id="readView" class="card hidden">
+      <h2>Lire un secret</h2>
+      <p class="muted">Ce secret ne peut être lu qu’une seule fois.</p>
+
+      <label for="readPinInput">PIN</label>
+      <input id="readPinInput" type="password" maxlength="6" inputmode="numeric" placeholder="******" />
+
+      <button id="readBtn" class="primary-btn">Déchiffrer</button>
+
+      <div id="readResult" class="result hidden"></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
