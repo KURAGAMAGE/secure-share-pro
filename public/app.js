@@ -16,6 +16,26 @@ function showBox(element, html, type = "info") {
   element.innerHTML = html;
 }
 
+// 🔥 amélioration copie (avec feedback)
+async function copyText(value, button = null, successLabel = "Copié !") {
+  try {
+    await navigator.clipboard.writeText(value);
+
+    if (button) {
+      const originalText = button.textContent;
+      button.textContent = successLabel;
+      button.disabled = true;
+
+      setTimeout(() => {
+        button.textContent = originalText;
+        button.disabled = false;
+      }, 1500);
+    }
+  } catch (error) {
+    alert("Impossible de copier.");
+  }
+}
+
 async function createSecret() {
   const secretInput = document.getElementById("secretInput");
   const pinInput = document.getElementById("pinInput");
@@ -69,14 +89,15 @@ async function createSecret() {
         <div class="result-label">PIN :</div>
         <div class="code-box">${pin}</div>
 
-        <button class="secondary-btn" onclick="copyText('${fullLink}')">Lien copié</button>
-        <button class="secondary-btn" onclick="copyText('${pin}')">Copier le PIN</button>
+        <button class="secondary-btn" onclick="copyText('${fullLink}', this, 'Lien copié !')">Copier le lien</button>
+        <button class="secondary-btn" onclick="copyText('${pin}', this, 'PIN copié !')">Copier le PIN</button>
 
         <p class="result-note">Envoie le lien et le PIN par deux canaux différents si possible.</p>
       `,
       "success"
     );
 
+    // reset inputs
     secretInput.value = "";
     pinInput.value = "";
   } catch (error) {
@@ -119,13 +140,12 @@ async function readSecret(secretId) {
       `,
       "success"
     );
+
+    // reset PIN input
+    pinInput.value = "";
   } catch (error) {
     showBox(result, "Erreur : impossible de contacter le serveur.", "error");
   }
-}
-
-function copyText(value) {
-  navigator.clipboard.writeText(value);
 }
 
 function init() {

@@ -3,16 +3,52 @@ const path = require("path");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const rateLimit = require("express-rate-limit");
+const mongoose = require("mongoose");
 
 const app = express();
-const PORT = process.env.PORT || 3000; // ✅ MODIFIÉ ICI
 
-const secrets = new Map();
+// 🔥 IMPORTANT POUR RENDER
+app.set("trust proxy", 1);
 
+const PORT = process.env.PORT || 3000;
+
+// ==========================
+// MongoDB connection
+// ==========================
+async function startServer() {
+  try {
+    await mongoose.connect(process.env.MONGO_URI);
+    console.log("MongoDB connecté");
+
+    app.listen(PORT, () => {
+      console.log(`Serveur lancé sur http://localhost:${PORT}`);
+    });
+  } catch (err) {
+    console.error("Erreur démarrage serveur:", err);
+  }
+}
+
+// ==========================
+// Schema MongoDB
+// ==========================
+const secretSchema = new mongoose.Schema({
+  secret: String,
+  pinHash: String,
+  attempts: { type: Number, default: 0 },
+  locked: { type: Boolean, default: false },
+  consumed: { type: Boolean, default: false },
+  expiresAt: Number
+});
+
+const Secret = mongoose.model("Secret", secretSchema);
+
+// ==========================
+// Middleware
+// ==========================
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static("public"));
 
-const globalLimiter = rateLimit({
+const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
   standardHeaders: true,
@@ -20,8 +56,11 @@ const globalLimiter = rateLimit({
   message: { error: "Trop de requêtes. Réessaie plus tard." }
 });
 
-app.use(globalLimiter);
+app.use(limiter);
 
+// ==========================
+// Helpers
+// ==========================
 function isValidPin(pin) {
   return /^\d{6}$/.test(pin);
 }
@@ -35,16 +74,17 @@ function getExpirationMs(value) {
   return 10 * 60 * 1000;
 }
 
+// ==========================
 // Nettoyage automatique
-setInterval(() => {
+// ==========================
+setInterval(async () => {
   const now = Date.now();
-
-  for (const [id, item] of secrets.entries()) {
-    if (item.expiresAt <= now) {
-      secrets.delete(id);
-    }
-  }
+  await Secret.deleteMany({ expiresAt: { $lte: now } });
 }, 60 * 1000);
+
+// ==========================
+// Routes
+// ==========================
 
 // Page principale
 app.get("/", (req, res) => {
@@ -56,67 +96,64 @@ app.get("/view/:id", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// Création d’un secret
+// Création secret
 app.post("/api/secret", async (req, res) => {
   try {
     const { secret, pin, expiresInMinutes } = req.body;
 
-    if (!secret || typeof secret !== "string" || !secret.trim()) {
+    if (!secret || !secret.trim()) {
       return res.status(400).json({ error: "Le secret est obligatoire." });
     }
 
     if (!isValidPin(pin)) {
-      return res.status(400).json({ error: "Le PIN doit contenir exactement 6 chiffres." });
+      return res.status(400).json({ error: "PIN invalide (6 chiffres)." });
     }
 
-    const id = crypto.randomUUID();
     const pinHash = await bcrypt.hash(pin, 10);
-    const expiresAt = Date.now() + getExpirationMs(expiresInMinutes);
 
-    secrets.set(id, {
+    const newSecret = await Secret.create({
       secret: secret.trim(),
       pinHash,
-      attempts: 0,
-      locked: false,
-      consumed: false,
-      expiresAt
+      expiresAt: Date.now() + getExpirationMs(expiresInMinutes)
     });
 
-    return res.json({
+    res.json({
       ok: true,
-      id,
-      link: `/view/${id}`
+      id: newSecret._id,
+      link: `/view/${newSecret._id}`
     });
-  } catch (error) {
-    return res.status(500).json({ error: "Erreur serveur." });
+
+  } catch (err) {
+    res.status(500).json({ error: "Erreur serveur." });
   }
 });
 
-// Lecture sécurisée
+// Lecture secret
 app.post("/api/secret/:id/read", async (req, res) => {
   try {
     const { pin } = req.body;
-    const item = secrets.get(req.params.id);
+
+    const item = await Secret.findById(req.params.id);
 
     if (!item) {
-      return res.status(404).json({ error: "Secret introuvable ou expiré." });
+      return res.status(404).json({ error: "Secret introuvable." });
     }
 
     if (item.expiresAt <= Date.now()) {
-      secrets.delete(req.params.id);
-      return res.status(410).json({ error: "Secret introuvable ou expiré." });
+      await Secret.deleteOne({ _id: item._id });
+      return res.status(410).json({ error: "Secret expiré." });
     }
 
     if (item.locked) {
-      return res.status(423).json({ error: "Secret bloqué après 3 erreurs." });
+      return res.status(423).json({ error: "Bloqué après 3 erreurs." });
     }
 
     if (item.consumed) {
-      return res.status(410).json({ error: "Secret déjà consulté." });
+      return res.status(410).json({ error: "Déjà consulté." });
     }
 
     if (!isValidPin(pin)) {
-      return res.status(400).json({ error: "Le PIN doit contenir exactement 6 chiffres." });
+      return res.status(400).json({ error: "PIN invalide." });
     }
 
     const valid = await bcrypt.compare(pin, item.pinHash);
@@ -126,30 +163,32 @@ app.post("/api/secret/:id/read", async (req, res) => {
 
       if (item.attempts >= 3) {
         item.locked = true;
-        return res.status(423).json({ error: "Secret bloqué après 3 erreurs." });
       }
 
+      await item.save();
+
       return res.status(403).json({
-        error: `PIN incorrect. Il reste ${3 - item.attempts} essai(s).`
+        error: `PIN incorrect. ${3 - item.attempts} essai(s) restant(s).`
       });
     }
 
     item.consumed = true;
+    await item.save();
 
-    return res.json({
+    res.json({
       ok: true,
       secret: item.secret
     });
-  } catch (error) {
-    return res.status(500).json({ error: "Erreur serveur." });
+
+  } catch (err) {
+    res.status(500).json({ error: "Erreur serveur." });
   }
 });
 
-// Route introuvable
+// 404
 app.use((req, res) => {
   res.status(404).json({ error: "Route introuvable" });
 });
 
-app.listen(PORT, () => {
-  console.log(`Serveur lancé sur http://localhost:${PORT}`);
-});
+// ==========================
+startServer();
